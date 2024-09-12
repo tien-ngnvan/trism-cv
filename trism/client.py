@@ -1,4 +1,5 @@
 from typing import Any
+from trism.meta import InferMeta
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
 # NOTE: attrdict broken in python 3.10 and not maintained.
@@ -46,16 +47,14 @@ def infermeta(
     conf = conf.config
   else:
     meta, conf = AttrDict(meta), AttrDict(conf)
-  inputs = [{
-    "name": meta.inputs[i].name,
-    "shape": meta.inputs[i].shape,
-    "type": meta.inputs[i].datatype,
-    "format": conf.input[0].format
-  } for i in range(len(meta.inputs))]
-  outputs = [{
-      "name": meta.outputs[i].name,
-      "shape": meta.outputs[i].shape,
-      "type": meta.outputs[i].datatype,
-      "format": inputs[0].format
-  } for i in range(len(meta.outputs))]
+  inputs = [InferMeta(
+    name=inp.name,
+    shape=inp.shape,
+    dtype=inp.datatype
+  ) for inp in meta.inputs]
+  outputs = [InferMeta(
+    name=out.name,
+    shape=out.shape,
+    dtype=out.datatype
+  ) for out in meta.outputs]
   return inputs, outputs
