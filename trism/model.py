@@ -42,9 +42,9 @@ class TritonModel:
     self._grpc = grpc
     self._model = model
     self._version = str(version) if version > 0 else ""
-    self._proto = client.protoclient(grpc)
-    self._client = client.serverclient(url, grpc)
-    self._inputs, self._outputs = client.metadata(self._client, model, version)
+    self._proto = client.protoclient(self.grpc)
+    self._client = client.serverclient(self.url, self.grpc)
+    self._inputs, self._outputs = client.metadata(self._client, self.model, self.version)
   
   def run(self, data: list[np.array]):
     inputs = [self._inputs[i].make_input(self._proto, data[i]) for i in range(len(self._inputs))]
