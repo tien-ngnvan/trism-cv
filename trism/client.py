@@ -1,7 +1,9 @@
 from typing import Any
-from trism.meta import InferMeta
+from trism.meta import Metadata
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
+from tritonclient.grpc import InferenceServerClient as GrpcClient
+from tritonclient.http import InferenceServerClient as HttpClient
 # NOTE: attrdict broken in python 3.10 and not maintained.
 # https://github.com/wallento/wavedrompy/issues/32#issuecomment-1306701776
 try:
@@ -15,11 +17,7 @@ except ImportError:
   from attrdict import AttrDict
 
 
-def client(grpc: bool = True) -> Any:
-  """
-  Get client package.
-  :param grpc:  grpc or http.
-  """
+def protoclient(grpc: bool = True) -> Any:
   return grpcclient if grpc else httpclient
 
 
@@ -29,13 +27,13 @@ def serverclient(
     concurrency: int = 10, 
     *args, 
     **kwds
-) -> grpcclient.InferenceServerClient | httpclient.InferenceServerClient:
-  return grpcclient.InferenceServerClient(url=url, *args, **kwds) if grpc else \
-    httpclient.InferenceServerClient(url=url, concurrency=concurrency, *args, **kwds)
+) -> GrpcClient | HttpClient:
+  return GrpcClient(url=url, *args, **kwds) if grpc else \
+    HttpClient(url=url, concurrency=concurrency, *args, **kwds)
 
 
-def infermeta(
-  client: grpcclient.InferenceServerClient | httpclient.InferenceServerClient,
+def metadata(
+  client: GrpcClient | HttpClient,
   model: str,
   version: str = "",
   *args,
@@ -43,16 +41,16 @@ def infermeta(
 ) -> Any:
   meta = client.get_model_metadata(model, version, *args, **kwds)
   conf = client.get_model_config(model, version, *args, **kwds)
-  if isinstance(client, grpcclient.InferenceServerClient):
+  if isinstance(client, GrpcClient):
     conf = conf.config
   else:
     meta, conf = AttrDict(meta), AttrDict(conf)
-  inputs = [InferMeta(
+  inputs = [Metadata(
     name=inp.name,
     shape=inp.shape,
     dtype=inp.datatype
   ) for inp in meta.inputs]
-  outputs = [InferMeta(
+  outputs = [Metadata(
     name=out.name,
     shape=out.shape,
     dtype=out.datatype
