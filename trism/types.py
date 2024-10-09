@@ -32,8 +32,7 @@ __NUMPY_TO_TRITON_STRING__ = {
   np.object_: "STRING"
 }
 
-
-def triton_to_np(dtype: str) -> np.dtype:
+def trt2np(dtype: str) -> np.dtype:
   dtype = dtype.upper()
   if dtype in __TRITON_STRING_TO_NUMPY__:
     return __TRITON_STRING_TO_NUMPY__[dtype]
@@ -41,7 +40,6 @@ def triton_to_np(dtype: str) -> np.dtype:
     return __TRITON_STRING_TO_NUMPY__[dtype.replace("TYPE_", "")]
   raise TypeError(f"Cannot convert triton type {dtype} to numpy type!")
 
-
-def np_to_triton(dtype: np.dtype, prefix: bool = False) -> str:
+def np2trt(dtype: np.dtype, prefix: bool = False) -> str:
   dtype = __NUMPY_TO_TRITON_STRING__[dtype]
   return f"TYPE_{dtype}" if prefix else dtype

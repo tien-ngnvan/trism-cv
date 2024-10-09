@@ -43,12 +43,12 @@ setup(
   packages=find_packages(),
   license="GNU AGPL v3.0",
   zip_safe=True,
-  description="Inference with Triton Inference Server easily.",
+  description="Simple Python package that helps us infer with Triton Inference Server easily",
   long_description=open("README.md", encoding="utf-8").read(),
   long_description_content_type="text/markdown",
   author="Hieu Pham",
   author_email="64821726+hieupth@users.noreply.github.com",
-  url="https://github.com/hieupth/trismid",
-  install_requires=['pinecore'],
+  url="https://github.com/hieupth/pytrism",
+  install_requires=['numpy', 'tritonclient'],
   classifiers=['Intended Audience :: Developers', 'Topic :: Software Development :: Build Tools']
 )

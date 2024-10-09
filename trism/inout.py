@@ -4,10 +4,7 @@ import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
 
 
-class Metadata:
-  """
-  Keep metadata about inference input/output.
-  """
+class Inout:
 
   @property
   def name(self) -> str:
@@ -24,13 +21,13 @@ class Metadata:
   def __init__(self, name: str, shape: tuple, dtype: str, *args, **kwds):
     self.__name = name
     self.__shape = shape
-    self.__dtype = types.triton_to_np(dtype)
+    self.__dtype = types.trt2np(dtype)
 
   def make_input(self, client, data: np.array) -> grpcclient.InferInput | httpclient.InferInput:
     infer = client.InferInput(
       name=self.name,
       shape=data.shape,
-      datatype=types.np_to_triton(self.dtype)
+      datatype=types.np2trt(self.dtype)
     )
     infer.set_data_from_numpy(np.astype(data, self.dtype))
     return infer
