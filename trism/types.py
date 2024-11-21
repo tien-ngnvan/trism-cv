@@ -14,6 +14,7 @@ __TRITON_STRING_TO_NUMPY__ = {
   "FP32": np.float32,
   "FP64": np.float64,
   "STRING": np.object_,
+  "BYTES": np.bytes_,
 }
 
 __NUMPY_TO_TRITON_STRING__ = {
@@ -29,7 +30,9 @@ __NUMPY_TO_TRITON_STRING__ = {
   np.float16: "FP16",
   np.float32: "FP32",
   np.float64: "FP64",
-  np.object_: "STRING"
+  np.object_: "STRING",
+  np.bytes_: "BYTES"
+  
 }
 
 def trt2np(dtype: str) -> np.dtype:
