@@ -1,9 +1,9 @@
 # Python TRISM
-The Triton Inference Server Model is a lightweight Python package designed to simplify and streamline the process of performing inference using the Triton Inference Server.
+The Triton Inference Server Model is a lightweight Python package designed to simplify the process of performing inference using the Triton Inference Server.
 ```bash
-pip install trism
+pip install trism-cv
 # Or
-pip install https://github.com/hieupth/trism
+pip install https://github.com/tien-ngnvan/trism-cv
 ```
 ## How to use
 ### 1. For Standard Models
@@ -25,50 +25,9 @@ for inp in model.inputs:
 for out in model.outputs:
   print(f"name: {out.name}, shape: {out.shape}, datatype: {out.dtype}\n")
 
-# Inference.
-outputs = model.run(data = [np.array(...)])
-```
 
-
-### 2. For VLM Models (Streaming)
-
-
-### Configuration for VLM Streaming
-
-To enable VLM streaming, you need to add the following configuration to your `config.pbtxt` file:
-
-```plaintext
-
-parameters [
-  {
-    key: "stream"
-    value: { string_value: "true" }
-  }
-]
-
-```
-
-### Inferences VLM model
-
-```python
-from trism import TritonLMModel
-import asyncio
-
-async def main():
-    vlm = TritonLMModel(model="vllm_model", version=1, url="localhost:8001")
-    sampling_parameters = {
-        "temperature": 0.7,
-        "max_tokens": 4096
-    }
-    async for token in vlm.run("Why is the color of ocean blue?", sampling_parameters=sampling_parameters, show_thinking=True):
-        print(token) # Check output
-    await vlm._serverclient.close()
-
-asyncio.run(main())
-
-```
 ## License
 [GNU AGPL v3.0](LICENSE).<br>
-Copyright &copy; 2024 [Hieu Pham](https://github.com/hieupth). All rights reserved.
+Copyright &copy; 2025 [Tien Nguyen Van](https://github.com/tien-ngnvan). All rights reserved.
 
 

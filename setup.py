@@ -38,17 +38,18 @@ def gitversion() -> str:
 
 
 setup(
-  name="trism",
+  name="trism-cv",
   version=gitversion(),
   packages=find_packages(),
   license="GNU AGPL v3.0",
   zip_safe=True,
-  description="Simple Python package that helps us infer with Triton Inference Server easily",
+  description="A lightweight and modular Python package for handling computer vision inference (image/video) with Triton Inference Server.",
   long_description=open("README.md", encoding="utf-8").read(),
   long_description_content_type="text/markdown",
-  author="Hieu Pham",
-  author_email="64821726+hieupth@users.noreply.github.com",
-  url="https://github.com/hieupth/pytrism",
+  author="Tien Nguyen Van",
+  author_email="tien.ngnvan@gmail.com",
+  maintainer="Thanh Nguyen Nhut, Minh Nguyen Ngoc, Tan Mai Nhat",
+  url="https://github.com/tien-ngnvan/trism-cv",
   install_requires=['numpy', 'tritonclient'],
   classifiers=['Intended Audience :: Developers', 'Topic :: Software Development :: Build Tools']
 )
