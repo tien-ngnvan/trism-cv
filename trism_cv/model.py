@@ -6,7 +6,7 @@ from PIL import Image
 import io
 import cv2
 import os
-
+import glob
 
 class Colors:
     def __init__(self):
@@ -72,7 +72,7 @@ class TritonModel:
         self._serverclient = client.serverclient(self.url, self.grpc)
         self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
 
-    def run(self, image_data: List[np.ndarray], output_dir: str = "runs/predicts", save_txt: bool = False, save_image: bool = False, id2label: Optional[Dict[int, str]] = None, image_paths: Optional[List[str]] = None, max_detections: int = 100) -> Dict[str, np.ndarray]:
+    def run(self, output_dir: str = "runs/predicts", save_txt: bool = False, save_image: bool = False, id2label: Optional[Dict[int, str]] = None, data_path: Optional[List[str]] = None, max_detections: int = 100, auto_config=False) -> Dict[str, np.ndarray]:
         """
         Run inference on a list of images and optionally save results.
 
@@ -88,6 +88,31 @@ class TritonModel:
         Returns:
             Dictionary with output tensors (e.g., {"OUTPUT": ndarray}).
         """
+        if auto_config:
+            self.auto_setup_config()
+
+
+        id2label = None
+        
+        if id2label:
+            with open(id2label) as f:
+                id2label = {i: line.strip() for i, line in enumerate(f)}
+
+        image_paths = []
+        for ext in ("*.jpg", "*.jpeg", "*.png"):
+            image_paths.extend(glob.glob(os.path.join(data_path, ext)))
+
+        if not image_paths:
+            raise FileNotFoundError(f"No images found in {data}")
+
+        image_data = []
+        valid_paths = []
+        for path in image_paths:
+            data = np.fromfile(path, dtype=np.uint8)
+            if data.size > 0:
+                image_data.append(data)
+                valid_paths.append(path)
+
         all_detections = []
         for i, data in enumerate(image_data):
 
@@ -119,7 +144,7 @@ class TritonModel:
                     os.makedirs(os.path.join(output_dir, "labels"), exist_ok=True)
 
                 for i, detections in enumerate(output_dict["OUTPUT"]):
-                    file_stem = os.path.splitext(os.path.basename(image_paths[i]))[0] if image_paths else f"image_{i}"
+                    file_stem = os.path.splitext(os.path.basename(valid_paths[i]))[0] if valid_paths else f"image_{i}"
 
                     if save_txt:
                         txt_path = os.path.join(output_dir, "labels", f"{file_stem}.txt")
@@ -134,7 +159,7 @@ class TritonModel:
 
                     if save_image:
                         try:
-                            image = cv2.imread(image_paths[i])
+                            image = cv2.imread(valid_paths[i])
                             if image is None:
                                 pil_image = Image.open(io.BytesIO(image_data[i])).convert("RGB")
                                 image = np.array(pil_image)[:, :, ::-1]
@@ -149,7 +174,7 @@ class TritonModel:
 
         return output_dict
     
-    def auto_setup_config(model_name: str, input_shape: tuple = (-1, -1, 3), output_shape: tuple = None) -> None:
+    def auto_setup_config(self, input_shape: tuple = (-1, -1, 3), output_shape: tuple = None) -> None:
         """
         Automatically generate a config.pbtxt for a Triton model if it doesn't exist.
 
@@ -158,26 +183,26 @@ class TritonModel:
             input_shape: Tuple, Shape of input tensor (default: dynamic for images).
             output_shape: Tuple, Shape of output tensor (default: depends on model_name).
         """
-        current_dir = os.getcwd()  # Get current working directory
-        model_dir = os.path.join(current_dir, model_name)
+        current_dir = os.getcwd()  
+        model_dir = os.path.join(current_dir, self._model)
         config_path = os.path.join(model_dir, "config.pbtxt")
         
         if os.path.exists(config_path):
-            print(f"Config file already exists for {model_name} at {config_path}")
+            print(f"Config file already exists for {self._model} at {config_path}")
             return
         
-        # Set output shape based on model_name
+        # Set output shape based on model name
         if output_shape is None:
-            if model_name == "yolov_ensemble":
+            if self._model == "yolov_ensemble":
                 output_shape = (-1, 6)  # [x1, y1, x2, y2, conf, cls]
-            elif model_name == "yolov_deyo_ensemble":
+            elif self._model == "yolov_deyo_ensemble":
                 output_shape = (-1, 8)  # [x1, y1, x2, y2, conf, cls, w, h]
             else:
                 output_shape = (-1, 6)  # Default fallback
         
         os.makedirs(model_dir, exist_ok=True)
         
-        config_content = f"""name: "{model_name}"
+        config_content = f"""name: "{self._model}"
     platform: "ensemble"
     max_batch_size: 0
     input [
@@ -199,6 +224,6 @@ class TritonModel:
         try:
             with open(config_path, "w") as f:
                 f.write(config_content)
-            print(f"Created config.pbtxt for {model_name} at {config_path}")
+            print(f"Created config.pbtxt for {self._model} at {config_path}")
         except Exception as e:
-            print(f"Error creating config.pbtxt for {model_name}: {str(e)}")
+            print(f"Error creating config.pbtxt for {self._model}: {str(e)}")

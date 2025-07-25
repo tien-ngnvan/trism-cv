@@ -16,40 +16,11 @@ def main():
     parser.add_argument("--label-file", type=str, help="Path to labels.txt file")
     parser.add_argument("--save-txt", action="store_true", help="Save detection results as text")
     parser.add_argument("--save-image", action="store_true", help="Save images with bounding boxes")
-    parser.add_argument("--batch-size", type=int, default=None, help="Number of images to process")
     parser.add_argument("--max-detections", type=int, default=100, help="Max detections per image")
     parser.add_argument("--auto-config", action="store_true", help="Auto-generate config.pbtxt if missing")
     args = parser.parse_args()
-    
-    if args.auto_config:
-        TritonModel.auto_setup_config(model_name=args.model_name)
-
-
-    id2label = None
-    
-    if args.label_file:
-        with open(args.label_file) as f:
-            id2label = {i: line.strip() for i, line in enumerate(f)}
-
-    image_paths = []
-    for ext in ("*.jpg", "*.jpeg", "*.png"):
-        image_paths.extend(glob.glob(os.path.join(args.data, ext)))
-
-    if not image_paths:
-        raise FileNotFoundError(f"No images found in {args.data}")
-
-    if args.batch_size is not None:
-        image_paths = image_paths[:args.batch_size]
 
     
-    image_data = []
-    valid_paths = []
-    for path in image_paths:
-        data = np.fromfile(path, dtype=np.uint8)
-        if data.size > 0:
-            image_data.append(data)
-            valid_paths.append(path)
-
     
     output_dir = os.path.join(args.output, f"{args.name}_{args.model_name}")
     os.makedirs(output_dir, exist_ok=True)
@@ -64,13 +35,13 @@ def main():
     
     # Run inference
     results = model.run(
-        image_data=image_data,
         output_dir="result/predicts_yolov_ensemble",
         save_txt=True,              
         save_image=True,            
-        id2label= id2label,  
-        image_paths=valid_paths,
-        max_detections=100
+        id2label= args.label_file,  
+        data_path=args.data,
+        max_detections=100,
+        auto_config = True
 )
 
     print(f"\n✅ Output shape: {results['OUTPUT'].shape}")
