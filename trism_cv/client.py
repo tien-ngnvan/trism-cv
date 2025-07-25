@@ -1,5 +1,5 @@
 from typing import Any
-from trism.inout import Inout
+from trism_cv.inout import Inout
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
 from tritonclient.grpc import InferenceServerClient as GrpcClient
@@ -9,6 +9,7 @@ from tritonclient.grpc import InferenceServerClient as GrpcClientSync
 from tritonclient.grpc.aio import InferenceServerClient as GrpcClientAsync
 from tritonclient.http import InferenceServerClient as HttpClient
 import inspect
+from typing import Union
 
 # NOTE: attrdict broken in python 3.10 and not maintained.
 # https://github.com/wallento/wavedrompy/issues/32#issuecomment-1306701776
@@ -32,7 +33,7 @@ def protoclient_async(grpc: bool = True) -> any:
     return grpcclient_aio if grpc else httpclient
 
 
-def serverclient(url: str, grpc: bool = True, concurrency: int = 10, *args, **kwds) -> GrpcClient | HttpClient:
+def serverclient(url: str, grpc: bool = True, concurrency: int = 10, *args, **kwds) -> Union[GrpcClient,HttpClient]:
   return GrpcClient(url=url, *args, **kwds) if grpc else \
     HttpClient(url=url, concurrency=concurrency, *args, **kwds)
 

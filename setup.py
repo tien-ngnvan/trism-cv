@@ -29,7 +29,7 @@ def gitversion() -> str:
       print('Unable to get git index status')
       exit(1)
     if dirty != '':
-      version += '.dev1'
+      version += '.dev0'
   else:
     # Extract the version from the PKG-INFO file.
     with open(os.path.join(d, 'PKG-INFO')) as f:

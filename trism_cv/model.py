@@ -1,10 +1,42 @@
-import json
 import numpy as np
-import asyncio
-from typing import Generator
-from trism import client 
-import requests
-import time
+from typing import Optional, Dict, List
+from trism_cv import client
+from tritonclient.grpc import InferInput, InferRequestedOutput
+from PIL import Image
+import io
+import cv2
+import os
+
+
+class Colors:
+    def __init__(self):
+        hexs = ('FF3838', 'FF9D97', 'FF701F', 'FFB21D', 'CFD231', '48F90A', '92CC17', '3DDB86', '1A9334', '00D4BB',
+                '2C99A8', '00C2FF', '344593', '6473FF', '0018EC', '8438FF', '520085', 'CB38FF', 'FF95C8', 'FF37C7')
+        self.palette = [self.hex2rgb(f'#{c}') for c in hexs]
+        self.n = len(self.palette)
+
+    def __call__(self, i, bgr=True):
+        c = self.palette[int(i) % self.n]
+        return (c[2], c[1], c[0]) if bgr else c
+
+    @staticmethod
+    def hex2rgb(h):
+        return tuple(int(h[i:i+2], 16) for i in (1, 3, 5))
+
+def draw_detection(image: np.ndarray, detections: List[List[float]], id2label: Optional[Dict[int, str]] = None) -> np.ndarray:
+    colors = Colors()
+    for *xyxy, conf, cls_id in detections:
+        x1, y1, x2, y2 = map(int, xyxy)
+        cls_id = int(cls_id)
+        label = id2label.get(cls_id, "Unknown") if id2label else "Unknown"
+        draw_color = colors(cls_id, True)
+
+        cv2.rectangle(image, (x1, y1), (x2, y2), draw_color, 2)
+        label_text = f"{label} {conf:.2f}"
+        (text_width, text_height), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        cv2.rectangle(image, (x1, y1 - text_height - 4), (x1 + text_width, y1), draw_color, -1)
+        cv2.putText(image, label_text, (x1, y1 - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
+    return image
 
 class TritonModel:
     @property
@@ -38,96 +70,81 @@ class TritonModel:
         self._version = str(version) if version > 0 else ""
         self._protoclient = client.protoclient(self.grpc)
         self._serverclient = client.serverclient(self.url, self.grpc)
-        self._inputs, self._outputs = client.inout(self._serverclient, self.model, self.version)
+        self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
 
-    def run(self, data: list[np.array]):
-        inputs = [self.inputs[i].make_input(self._protoclient, data[i]) for i in range(len(self.inputs))]
-        outputs = [output.make_output(self._protoclient) for output in self.outputs]
-        results = self._serverclient.infer(self.model, inputs, self.version, outputs)
-        return {output.name: results.as_numpy(output.name) for output in self.outputs}
-
-class TritonLMModel:
-    def __init__(self, model: str, version: int = 1, url: str = 'localhost:8001', stream: bool = True):
-        self._url = url
-        self._grpc = True
-        self._model = model
-        self._stream = stream
-        self._version = str(version) if version > 0 else ""
-        self._protoclient = client.protoclient_async(self._grpc)
-        self._serverclient = client.serverclient_async(self._url, self._grpc, async_mode=True)
-        self._inputs, self._outputs = None, None
-
-    async def _request_iterator(self, prompt: str, sampling_parameters: dict):
-        inputs = []
-        for inp in self._inputs:
-            if inp.name == "text_input":
-                data = np.array([prompt.encode("utf-8")], dtype=np.object_)
-            elif inp.name == "stream":
-                data = np.array([self._stream], dtype=bool)
-            elif inp.name == "sampling_parameters":
-                data = np.array([json.dumps(sampling_parameters).encode("utf-8")], dtype=np.object_)
-            elif inp.name == "exclude_input_in_output":
-                data = np.array([True], dtype=bool)
-            else:
-                continue
-            inputs.append(inp.make_input(self._protoclient, data))
-
-        outputs = [out.make_output(self._protoclient) for out in self._outputs]
-
-        yield {
-            "model_name": self._model,
-            "inputs": inputs,
-            "outputs": outputs,
-        }
-
-    async def run(self, prompt: str, sampling_parameters: dict, show_thinking: bool = True) -> Generator[str, None, None]:
-
-
+    def run(self, image_data: List[np.ndarray], output_dir: str = "runs/predicts", save_txt: bool = False, save_image: bool = False, id2label: Optional[Dict[int, str]] = None, image_paths: Optional[List[str]] = None, max_detections: int = 100) -> Dict[str, np.ndarray]:
         """
-        Parameters:
-        -----------
-        prompt : str
-            The input prompt string to be passed to the language model.
-        
-        sampling_parameters : dict
-            A dictionary of sampling parameters (e.g., temperature, top_k, top_p, max_tokens) used to guide generation.
-        
-        show_thinking : bool, default=True
-            If True, yields every generated token to simulate a "chain of thought".
-            If False, suppresses output until the special token "</think>" is found.
+        Run inference on a list of images and optionally save results.
 
-        Yields:
-        -------
-        str
-            Tokens or chunks of text generated by the model, streamed one-by-one."
+        Args:
+            image_data: List of image data as bytes (numpy arrays).
+            output_dir: Directory to save results (images and/or text files).
+            save_txt: If True, save detections as text files in YOLO format.
+            save_image: If True, save images with drawn bounding boxes.
+            id2label: Dictionary mapping class IDs to labels.
+            image_paths: Optional list of image paths for naming output files.
+            max_detections: Maximum number of detections per image (for padding).
+
+        Returns:
+            Dictionary with output tensors (e.g., {"OUTPUT": ndarray}).
         """
-        
-        if self._inputs is None or self._outputs is None:
-            self._inputs, self._outputs = await client.iout_async(self._serverclient, self._model, self._version)
+        all_detections = []
+        for i, data in enumerate(image_data):
 
-        if show_thinking:
-            print("🔄 Begin chain of thought ...", end="", flush=True)
-        else:
-            print("🔄 Thinking ...", end="", flush=True)
+            input_data = np.expand_dims(data, axis=0)
+            infer_input = InferInput("INPUT", input_data.shape, "UINT8")
+            infer_input.set_data_from_numpy(input_data)
+            inputs = [infer_input]
+            outputs = [InferRequestedOutput("OUTPUT")]
 
-        cache = ""
-        response_iterator = self._serverclient.stream_infer(
-            inputs_iterator=self._request_iterator(prompt=prompt, sampling_parameters=sampling_parameters)
-        )
-        async for response in response_iterator:
-            result, error = response
-            if error is not None:
-                print(f"[!] Triton returned error: {error}")
-                continue
-            output = result.as_numpy("text_output")
-            for token in output:
-                text = token.decode("utf-8")    
-                cache += text
-                if show_thinking == False:
-                    if "</think>" in cache and text != '</think>':
-                        yield text
-                        continue
-                else:
-                    yield text
+            try:
+                results = self._serverclient.infer(self.model, inputs, self._version, outputs)
+                detections = results.as_numpy("OUTPUT")[0]
+                num_dets = detections.shape[0]
+                if num_dets > max_detections:
+                    detections = detections[:max_detections]
+                elif num_dets < max_detections:
+                    pad = np.zeros((max_detections - num_dets, 6), dtype=np.float32)
+                    detections = np.vstack([detections, pad])
+                all_detections.append(detections)
+            except Exception as e:
+                raise
 
+        output_dict = {"OUTPUT": np.stack(all_detections, axis=0)}
 
+        if save_txt or save_image:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                if save_txt:
+                    os.makedirs(os.path.join(output_dir, "labels"), exist_ok=True)
+
+                for i, detections in enumerate(output_dict["OUTPUT"]):
+                    file_stem = os.path.splitext(os.path.basename(image_paths[i]))[0] if image_paths else f"image_{i}"
+
+                    if save_txt:
+                        txt_path = os.path.join(output_dir, "labels", f"{file_stem}.txt")
+                        try:
+                            with open(txt_path, "w") as f:
+                                for *xyxy, conf, cls in detections:
+                                    if conf > 0:
+                                        line = (*xyxy, conf, cls)
+                                        f.write(('%g ' * len(line)).rstrip() % line + '\n')
+                        except Exception:
+                            pass
+
+                    if save_image:
+                        try:
+                            image = cv2.imread(image_paths[i])
+                            if image is None:
+                                pil_image = Image.open(io.BytesIO(image_data[i])).convert("RGB")
+                                image = np.array(pil_image)[:, :, ::-1]
+                            valid_dets = [d for d in detections if d[4] > 0]
+                            image = draw_detection(image, valid_dets, id2label)
+                            img_path = os.path.join(output_dir, f"{file_stem}.jpg")
+                            cv2.imwrite(img_path, image)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        return output_dict
