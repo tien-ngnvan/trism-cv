@@ -4,6 +4,8 @@ import glob
 import os
 import argparse
 
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run inference with TritonModel")
     parser.add_argument("--model_name", type=str, default="yolov_ensemble", help="Model name")
@@ -16,8 +18,12 @@ def main():
     parser.add_argument("--save-image", action="store_true", help="Save images with bounding boxes")
     parser.add_argument("--batch-size", type=int, default=None, help="Number of images to process")
     parser.add_argument("--max-detections", type=int, default=100, help="Max detections per image")
-
+    parser.add_argument("--auto-config", action="store_true", help="Auto-generate config.pbtxt if missing")
     args = parser.parse_args()
+    
+    if args.auto_config:
+        TritonModel.auto_setup_config(model_name=args.model_name)
+
 
     id2label = None
     

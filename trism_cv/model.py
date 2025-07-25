@@ -148,3 +148,57 @@ class TritonModel:
                 pass
 
         return output_dict
+    
+    def auto_setup_config(model_name: str, input_shape: tuple = (-1, -1, 3), output_shape: tuple = None) -> None:
+        """
+        Automatically generate a config.pbtxt for a Triton model if it doesn't exist.
+
+        Args:
+            model_name: Name of the model (e.g., "yolov_ensemble", "yolov_deyo_ensemble").
+            input_shape: Tuple, Shape of input tensor (default: dynamic for images).
+            output_shape: Tuple, Shape of output tensor (default: depends on model_name).
+        """
+        current_dir = os.getcwd()  # Get current working directory
+        model_dir = os.path.join(current_dir, model_name)
+        config_path = os.path.join(model_dir, "config.pbtxt")
+        
+        if os.path.exists(config_path):
+            print(f"Config file already exists for {model_name} at {config_path}")
+            return
+        
+        # Set output shape based on model_name
+        if output_shape is None:
+            if model_name == "yolov_ensemble":
+                output_shape = (-1, 6)  # [x1, y1, x2, y2, conf, cls]
+            elif model_name == "yolov_deyo_ensemble":
+                output_shape = (-1, 8)  # [x1, y1, x2, y2, conf, cls, w, h]
+            else:
+                output_shape = (-1, 6)  # Default fallback
+        
+        os.makedirs(model_dir, exist_ok=True)
+        
+        config_content = f"""name: "{model_name}"
+    platform: "ensemble"
+    max_batch_size: 0
+    input [
+    {{
+        name: "INPUT"
+        data_type: TYPE_UINT8
+        dims: {list(input_shape)}
+    }}
+    ]
+    output [
+    {{
+        name: "OUTPUT"
+        data_type: TYPE_FP32
+        dims: {list(output_shape)}  
+    }}
+    ]
+    """
+        
+        try:
+            with open(config_path, "w") as f:
+                f.write(config_content)
+            print(f"Created config.pbtxt for {model_name} at {config_path}")
+        except Exception as e:
+            print(f"Error creating config.pbtxt for {model_name}: {str(e)}")

@@ -5,4 +5,5 @@ python test_trism_cv.py \
   --data /home/nhattan05022003/coding/Tien_project/Triton_Thanh/odlab-triton/assets \
   --label-file  /home/nhattan05022003/coding/Tien_project/Triton_Thanh/odlab-triton/src/labels.txt \
   --max-detections 100 \
-  --output result
+  --output result \
+  --auto-config
