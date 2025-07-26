@@ -39,7 +39,7 @@ def gitversion() -> str:
 
 setup(
   name="trism-cv",
-  version="0.0.1.dev2",
+  version="0.0.3.dev2",
   packages=find_packages(),
   license="GNU AGPL v3.0",
   zip_safe=True,

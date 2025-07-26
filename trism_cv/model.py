@@ -46,7 +46,7 @@ class TritonModel:
         self._serverclient = client.serverclient(self.url, self.grpc)
         self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
 
-    def run(self, id2label: Optional[Dict[int, str]] = None, data_list: Optional[List[np.ndarray]] = None, auto_config=False, batch_size= int) -> Dict[str, np.ndarray]:
+    def run(self, data_list: Optional[List[np.ndarray]] = None, auto_config=False, batch_size: int = 1) -> List[np.ndarray]:
         """
         Run inference on a list of images and optionally save results.
 
@@ -62,16 +62,9 @@ class TritonModel:
         Returns:
             Dictionary with output tensors (e.g., {"OUTPUT": ndarray}).
         """
-        print("hello")
+        print("Starting inference...")
         if auto_config:
             self.auto_setup_config()
-
-
-        id2label = None
-        
-        if id2label:
-            with open(id2label) as f:
-                id2label = {i: line.strip() for i, line in enumerate(f)}
 
         triton_batch_size = self.get_max_batch_size()
         batch_size = min(triton_batch_size, batch_size)
@@ -104,8 +97,10 @@ class TritonModel:
                 outputs=[InferRequestedOutput("OUTPUT")],
             )
             output = results.as_numpy("OUTPUT")
-            all_outputs.append(output)
 
+            for img in output:
+                all_outputs.append(img)
+            
         return all_outputs
 
         
