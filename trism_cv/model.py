@@ -74,20 +74,18 @@ class TritonModel:
         for batch_idx in tqdm(range(0, len(data_list), batch_size), desc="Processing batches"):
             batch_images = data_list[batch_idx:batch_idx + batch_size]
 
-            # Pad images to the same size within the batch
             max_height = max(img.shape[0] for img in batch_images)
             max_width = max(img.shape[1] for img in batch_images)
             padded_images = []
             for img in batch_images:
                 h, w = img.shape[:2]
-                padded_img = np.zeros((max_height, max_width, 3), dtype=np.uint8)
+                padded_img = np.full((max_height, max_width, 3), 128, dtype=np.uint8)  
                 padded_img[:h, :w, :] = img
                 padded_images.append(padded_img)
 
-            # Create batch
             batch_data = np.stack(padded_images, axis=0)  # Shape: [batch_size, max_height, max_width, 3]
 
-            # Send batch to Triton
+
             infer_input = InferInput("INPUT", batch_data.shape, "UINT8")
             infer_input.set_data_from_numpy(batch_data)
 
@@ -102,7 +100,6 @@ class TritonModel:
                 all_outputs.append(img)
             
         return all_outputs
-
         
 
     def get_max_batch_size(self):
@@ -126,35 +123,29 @@ class TritonModel:
 
     def auto_setup_config(self, input_shape: tuple = (-1, -1, 3), output_shape: tuple = None) -> None:
         """
-        Automatically generate a config.pbtxt for a Triton model if it doesn't exist.
+        Automatically generate a config.pbtxt file for the Triton model if it doesn't already exist.
 
         Args:
-            model_name: Name of the model (e.g., "yolov_ensemble", "yolov_deyo_ensemble").
-            input_shape: Tuple, Shape of input tensor (default: dynamic for images).
-            output_shape: Tuple, Shape of output tensor (default: depends on model_name).
+            input_shape (tuple): Shape of the input tensor. Default is dynamic image input.
+            output_shape (tuple): Shape of the output tensor. If None, determined by model name.
         """
-        current_dir = os.getcwd()  
+        current_dir = os.getcwd()
         model_dir = os.path.join(current_dir, self._model)
         config_path = os.path.join(model_dir, "config.pbtxt")
-        
+
         if os.path.exists(config_path):
-            print(f"Config file already exists for {self._model} at {config_path}")
+            print(f"✅ Config file already exists for {self._model} at {config_path}")
             return
-        
-        # Set output shape based on model name
+
         if output_shape is None:
-            if self._model == "yolov_ensemble":
-                output_shape = (-1, 6)  # [x1, y1, x2, y2, conf, cls]
-            elif self._model == "yolov_deyo_ensemble":
-                output_shape = (-1, 8)  # [x1, y1, x2, y2, conf, cls, w, h]
-            else:
-                output_shape = (-1, 6)  # Default fallback
-        
+            output_shape = (-1, -1, 6)  # [x1, y1, x2, y2, score, class]
+            
         os.makedirs(model_dir, exist_ok=True)
-        
+
         config_content = f"""name: "{self._model}"
     platform: "ensemble"
-    max_batch_size: 0
+    max_batch_size: 16
+
     input [
     {{
         name: "INPUT"
@@ -162,18 +153,20 @@ class TritonModel:
         dims: {list(input_shape)}
     }}
     ]
+
     output [
     {{
         name: "OUTPUT"
         data_type: TYPE_FP32
-        dims: {list(output_shape)}  
+        dims: {list(output_shape)}
     }}
     ]
     """
-        
+
         try:
             with open(config_path, "w") as f:
                 f.write(config_content)
-            print(f"Created config.pbtxt for {self._model} at {config_path}")
+            print(f"✅ Created config.pbtxt for {self._model} at {config_path}")
         except Exception as e:
-            print(f"Error creating config.pbtxt for {self._model}: {str(e)}")
+            print(f"❌ Failed to create config.pbtxt for {self._model}: {str(e)}")
+
