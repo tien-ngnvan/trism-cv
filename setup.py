@@ -39,7 +39,7 @@ def gitversion() -> str:
 
 setup(
   name="trism-cv",
-  version="0.0.5.dev2",
+  version=gitversion(),
   packages=find_packages(),
   license="GNU AGPL v3.0",
   zip_safe=True,
@@ -51,6 +51,8 @@ setup(
   maintainer="Thanh Nguyen Nhut, Minh Nguyen Ngoc, Tan Mai Nhat",
   url="https://github.com/tien-ngnvan/trism-cv",
   install_requires=['numpy',
+        'opencv-python',
+        'tqdm',
         'tritonclient[all]', 
         'attrdict'],
   classifiers=['Intended Audience :: Developers', 'Topic :: Software Development :: Build Tools']

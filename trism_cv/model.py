@@ -1,16 +1,21 @@
-import numpy as np
-from typing import Optional, Dict, List
-from trism_cv import client
-from tritonclient.grpc import InferInput, InferRequestedOutput
-import cv2
 import os
+import cv2
+import numpy as np
 from tqdm import tqdm
+from typing import Optional, List
+
+from tritonclient.grpc import InferInput, InferRequestedOutput
+
+from trism_cv import client
+
+
 
 def load_image(img_path: str):
-        image = cv2.imread(img_path)
-        if image is None:
-            raise ValueError(f"Failed to load image: {img_path}")
-        return image
+    image = cv2.imread(img_path)
+    if image is None:
+        raise ValueError(f"Failed to load image: {img_path}")
+    return image
+
 
 class TritonModel:
     @property
@@ -100,7 +105,6 @@ class TritonModel:
                 all_outputs.append(img)
             
         return all_outputs
-        
 
     def get_max_batch_size(self):
         """
@@ -119,8 +123,7 @@ class TritonModel:
         except Exception as e:
             print(f"Failed to get model config for '{self._model}': {e}")
             return 0
-
-
+        
     def auto_setup_config(self, input_shape: tuple = (-1, -1, 3), output_shape: tuple = None) -> None:
         """
         Automatically generate a config.pbtxt file for the Triton model if it doesn't already exist.

@@ -1,8 +1,11 @@
 import numpy as np
-from trism_cv import types
+from typing import Union
+
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
-from typing import Union
+
+from trism_cv import types
+
 
 
 class Inout:
