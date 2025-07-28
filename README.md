@@ -1,74 +1,44 @@
-# Python TRISM
-The Triton Inference Server Model is a lightweight Python package designed to simplify and streamline the process of performing inference using the Triton Inference Server.
-```bash
-pip install trism
-# Or
-pip install https://github.com/hieupth/trism
-```
-## How to use
-### 1. For Standard Models
+# TRISM Inference Script
+This script performs batch inference on a folder of images using a Triton Inference Server model.
+
+## 📂 Input
+- **image_folder**: Path to the folder containing images (jpg, png, etc.).
+- Images are loaded using OpenCV (`cv2.imread`) into a list of `np.ndarray` objects.
+
+## ⚙️ Configuration
 
 ```python
-from trism import TritonModel
+image_folder = "path/to/image_folder"   
+model_name = "yolov_deyo_ensemble"
+batch_size = 1 # You can pass a custom batch size or use default (e.g., 1)
+```
 
-# Create triton model.
+## 🚀 Inference
+```python
 model = TritonModel(
-  model="my_model",     # Model name.
-  version=0,            # Model version.
-  url="localhost:8001", # Triton Server URL.
-  grpc=True             # Use gRPC or Http.
+    model=model_name, 
+    version=1,                    # Model version on Triton server
+    url="localhost:8001",         # Triton server address
+    grpc=True                     # Use gRPC protocol for communication
 )
 
-# View metadata.
-for inp in model.inputs:
-  print(f"name: {inp.name}, shape: {inp.shape}, datatype: {inp.dtype}\n")
-for out in model.outputs:
-  print(f"name: {out.name}, shape: {out.shape}, datatype: {out.dtype}\n")
-
-# Inference.
-outputs = model.run(data = [np.array(...)])
+outputs = model.run(
+    data_list=images,              # list of images 
+    auto_config=True,
+    batch_size=batch_size
+)
 ```
 
+## 📤 Output
+- A list of numpy arrays, one for each input image.
+- Each output has shape `(n_detections, 6)` where `6 = [x1, y1, x2, y2, confidence, class_id]`
 
-### 2. For VLM Models (Streaming)
-
-
-### Configuration for VLM Streaming
-
-To enable VLM streaming, you need to add the following configuration to your `config.pbtxt` file:
-
-```plaintext
-
-parameters [
-  {
-    key: "stream"
-    value: { string_value: "true" }
-  }
-]
-
-```
-
-### Inferences VLM model
-
+### 🧪 Debug Output
 ```python
-from trism import TritonLMModel
-import asyncio
-
-async def main():
-    vlm = TritonLMModel(model="vllm_model", version=1, url="localhost:8001")
-    sampling_parameters = {
-        "temperature": 0.7,
-        "max_tokens": 4096
-    }
-    async for token in vlm.run("Why is the color of ocean blue?", sampling_parameters=sampling_parameters, show_thinking=True):
-        print(token) # Check output
-    await vlm._serverclient.close()
-
-asyncio.run(main())
-
+for i, out in enumerate(outputs):
+    print(f"Image {i}: shape = {out.shape}, dtype = {out.dtype}")
 ```
+
 ## License
 [GNU AGPL v3.0](LICENSE).<br>
-Copyright &copy; 2024 [Hieu Pham](https://github.com/hieupth). All rights reserved.
-
-
+Copyright &copy; 2025 [Tien Nguyen Van](https://github.com/tien-ngnvan). All rights reserved.
