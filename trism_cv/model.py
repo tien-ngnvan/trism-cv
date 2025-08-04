@@ -67,13 +67,13 @@ class TritonModel:
         Returns:
             Dictionary with output tensors (e.g., {"OUTPUT": ndarray}).
         """
-        print("Starting inference...")
+        # print("Starting inference...")
         if auto_config:
             self.auto_setup_config()
 
         triton_batch_size = self.get_max_batch_size()
         batch_size = min(triton_batch_size, batch_size)
-        print(f"\nUsing batch_size={batch_size} (max_batch_size={triton_batch_size})")
+        # print(f"\nUsing batch_size={batch_size} (max_batch_size={triton_batch_size})")
 
         all_outputs = []
         for batch_idx in tqdm(range(0, len(data_list), batch_size), desc="Processing batches"):
