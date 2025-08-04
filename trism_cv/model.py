@@ -76,7 +76,7 @@ class TritonModel:
         # print(f"\nUsing batch_size={batch_size} (max_batch_size={triton_batch_size})")
 
         all_outputs = []
-        for batch_idx in tqdm(range(0, len(data_list), batch_size), desc="Processing batches"):
+        for batch_idx in tqdm(range(0, len(data_list), batch_size)):
             batch_images = data_list[batch_idx:batch_idx + batch_size]
 
             max_height = max(img.shape[0] for img in batch_images)
