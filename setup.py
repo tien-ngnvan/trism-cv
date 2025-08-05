@@ -32,7 +32,7 @@ def gitversion() -> str:
       version += '.dev0'
   else:
     # Extract the version from the PKG-INFO file.
-    with open(os.path.join(d, 'PKG-INFO')) as f:
+    with open(os.path.join(d, 'PKG-INFO'), encoding="utf-8") as f:
       version = _re.search(f.read()).group(1)
   return version
 
