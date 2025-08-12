@@ -2,12 +2,10 @@ import os
 import cv2
 import numpy as np
 from tqdm import tqdm
-from typing import Optional, List
-
+from typing import Optional, List, Union
 from tritonclient.grpc import InferInput, InferRequestedOutput
-
 from trism_cv import client
-
+from .types import np2trt
 
 
 def load_image(img_path: str):
@@ -15,7 +13,6 @@ def load_image(img_path: str):
     if image is None:
         raise ValueError(f"Failed to load image: {img_path}")
     return image
-
 
 class TritonModel:
     @property
@@ -51,60 +48,80 @@ class TritonModel:
         self._serverclient = client.serverclient(self.url, self.grpc)
         self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
 
-    def run(self, data_list: Optional[List[np.ndarray]] = None, auto_config=False, batch_size: int = 1) -> List[np.ndarray]:
-        """
-        Run inference on a list of images and optionally save results.
+        
+    def _is_image_list(self, data):
+        """Check if data is a list of images (H, W, 3) as np.ndarray."""
+        return (
+            isinstance(data, list)
+            and all(isinstance(img, np.ndarray) and img.ndim == 3 and img.shape[2] == 3 for img in data)
+        )
 
-        Args:
-            image_data: List of image data as bytes (numpy arrays).
-            output_dir: Directory to save results (images and/or text files).
-            save_txt: If True, save detections as text files in YOLO format.
-            save_image: If True, save images with drawn bounding boxes.
-            id2label: Dictionary mapping class IDs to labels.
-            image_paths: Optional list of image paths for naming output files.
-            max_detections: Maximum number of detections per image (for padding).
+    def _is_ndarray(self, data):
+        """Check if data is a numpy array (any shape, any dtype)."""
+        return isinstance(data, np.ndarray)
 
-        Returns:
-            Dictionary with output tensors (e.g., {"OUTPUT": ndarray}).
-        """
-        # print("Starting inference...")
-        if auto_config:
-            self.auto_setup_config()
+    def _infer_array(self, np_array, dtype_str):
+        """Run Triton inference for a numpy array."""
+        infer_input = InferInput("INPUT", list(np_array.shape), dtype_str)
+        infer_input.set_data_from_numpy(np_array)
+        results = self._serverclient.infer(
+            model_name=self._model,
+            inputs=[infer_input],
+            outputs=[InferRequestedOutput("OUTPUT")],
+        )
+        return results.as_numpy("OUTPUT")
 
+    def _process_image_list(self, img_list: List[np.ndarray], batch_size: int) -> List[np.ndarray]:
+        """Pad images to same size, batch, and run inference."""
         triton_batch_size = self.get_max_batch_size()
         batch_size = min(triton_batch_size, batch_size)
-        # print(f"\nUsing batch_size={batch_size} (max_batch_size={triton_batch_size})")
-
         all_outputs = []
-        for batch_idx in tqdm(range(0, len(data_list), batch_size)):
-            batch_images = data_list[batch_idx:batch_idx + batch_size]
+
+        for batch_idx in tqdm(range(0, len(img_list), batch_size)):
+            batch_images = img_list[batch_idx:batch_idx + batch_size]
 
             max_height = max(img.shape[0] for img in batch_images)
             max_width = max(img.shape[1] for img in batch_images)
+
             padded_images = []
             for img in batch_images:
                 h, w = img.shape[:2]
-                padded_img = np.full((max_height, max_width, 3), 128, dtype=np.uint8)  
+                padded_img = np.full((max_height, max_width, 3), 128, dtype=np.uint8)
                 padded_img[:h, :w, :] = img
                 padded_images.append(padded_img)
 
-            batch_data = np.stack(padded_images, axis=0)  # Shape: [batch_size, max_height, max_width, 3]
+            batch_data = np.stack(padded_images, axis=0)
+            output = self._infer_array(batch_data, "UINT8")
+            all_outputs.extend(output)
 
-
-            infer_input = InferInput("INPUT", batch_data.shape, "UINT8")
-            infer_input.set_data_from_numpy(batch_data)
-
-            results = self._serverclient.infer(
-                model_name=self._model,
-                inputs=[infer_input],
-                outputs=[InferRequestedOutput("OUTPUT")],
-            )
-            output = results.as_numpy("OUTPUT")
-
-            for img in output:
-                all_outputs.append(img)
-            
         return all_outputs
+
+    def _process_ndarray(self, array: np.ndarray) -> List[np.ndarray]:
+        """Run inference for any numpy array with supported dtype."""
+        triton_dtype = np2trt(array.dtype.type)  
+        array = np.expand_dims(array, axis=0) 
+        output = self._infer_array(array, triton_dtype)
+        return [output]
+
+
+    def run(
+        self,
+        data_list: Optional[Union[List[np.ndarray], np.ndarray]] = None,
+        auto_config: bool = False,
+        batch_size: int = 1
+    ) -> List[np.ndarray]:
+        """Run inference for either a list of images or a numpy array."""
+        if auto_config:
+            self.auto_setup_config()
+
+        if self._is_image_list(data_list):
+            return self._process_image_list(data_list, batch_size)
+        elif self._is_ndarray(data_list):
+            return self._process_ndarray(data_list)
+        else:
+            raise ValueError(
+                f"Unsupported input format. Expected list of images or np.ndarray, but got {type(data_list)}"
+            )
 
     def get_max_batch_size(self):
         """
