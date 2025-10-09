@@ -1,16 +1,17 @@
-import numpy as np
-from typing import Optional, Dict, List
-from trism_cv import client
-from tritonclient.grpc import InferInput, InferRequestedOutput
-import cv2
 import os
+import cv2
+import numpy as np
 from tqdm import tqdm
+from typing import List, Union, Dict
+from tritonclient.grpc import InferInput, InferRequestedOutput
+from trism_cv import client
+from .types import np2trt
 
-def load_image(img_path: str):
-        image = cv2.imread(img_path)
-        if image is None:
-            raise ValueError(f"Failed to load image: {img_path}")
-        return image
+def load_image(img_path: str) -> np.ndarray:
+    image = cv2.imread(img_path)
+    if image is None:
+        raise ValueError(f"Failed to load image: {img_path}")
+    return image
 
 class TritonModel:
     @property
@@ -46,63 +47,100 @@ class TritonModel:
         self._serverclient = client.serverclient(self.url, self.grpc)
         self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
 
-    def run(self, data_list: Optional[List[np.ndarray]] = None, auto_config=False, batch_size: int = 1) -> List[np.ndarray]:
+    def _infer_multi_inputs(self, inputs_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        
         """
-        Run inference on a list of images and optionally save results.
+        Run Triton inference for multiple named inputs.
 
         Args:
-            image_data: List of image data as bytes (numpy arrays).
-            output_dir: Directory to save results (images and/or text files).
-            save_txt: If True, save detections as text files in YOLO format.
-            save_image: If True, save images with drawn bounding boxes.
-            id2label: Dictionary mapping class IDs to labels.
-            image_paths: Optional list of image paths for naming output files.
-            max_detections: Maximum number of detections per image (for padding).
-
+            inputs_dict: dict of {input_name: np.ndarray}
+            
         Returns:
-            Dictionary with output tensors (e.g., {"OUTPUT": ndarray}).
+            Dict[str, np.ndarray]: dict of {output_name: np.ndarray} containing model outputs.
+        """
+
+        infer_inputs = []
+        input_names = [inp.name for inp in self._inputs]
+        
+        for name in input_names:
+            if name not in inputs_dict:
+                raise KeyError(f"Missing required input '{name}' in data_dict")
+
+            data = inputs_dict[name]
+            dtype_str = np2trt(data.dtype.type)
+            infer_input = InferInput(name, list(data.shape), dtype_str)
+            infer_input.set_data_from_numpy(data)
+            infer_inputs.append(infer_input)
+
+        outputs = [InferRequestedOutput(out.name) for out in self._outputs]
+
+        results = self._serverclient.infer(
+            model_name=self._model,
+            model_version=self._version,
+            inputs=infer_inputs,
+            outputs=outputs,
+        )
+        return {out.name: results.as_numpy(out.name) for out in self._outputs}
+
+    def run(
+        self, 
+        data_dict: Dict[str, Union[List[np.ndarray]]],
+        auto_config=False, 
+        batch_size: int = 1
+        ) -> Union[Dict[str, np.ndarray]]:
+        """
+            Run inference with batch processing.
+            - data_dict: dict of inputs, each value can be list of np.ndarray
+            - batch_size: number of samples per batch
         """
         print("Starting inference...")
         if auto_config:
             self.auto_setup_config()
 
+        if not isinstance(data_dict, dict):
+            raise ValueError("Expected a dict input, e.g. {'img': [...], 'boxes': [...]}")
+
+        processed_inputs = {}
+        num_samples = None
+
+        for key, value in data_dict.items():
+            if isinstance(value, list):
+                stacked = np.stack(value, axis=0)
+                processed_inputs[key] = stacked
+                num_samples = stacked.shape[0]
+            else:
+                raise TypeError(f"Unsupported type for key '{key}': {type(value)}")
+
+        if num_samples is None:
+            raise ValueError("Cannot determine batch size from input data.")
+
         triton_batch_size = self.get_max_batch_size()
         batch_size = min(triton_batch_size, batch_size)
-        print(f"\nUsing batch_size={batch_size} (max_batch_size={triton_batch_size})")
 
-        all_outputs = []
-        for batch_idx in tqdm(range(0, len(data_list), batch_size), desc="Processing batches"):
-            batch_images = data_list[batch_idx:batch_idx + batch_size]
+        all_outputs = []    
 
-            max_height = max(img.shape[0] for img in batch_images)
-            max_width = max(img.shape[1] for img in batch_images)
-            padded_images = []
-            for img in batch_images:
-                h, w = img.shape[:2]
-                padded_img = np.full((max_height, max_width, 3), 128, dtype=np.uint8)  
-                padded_img[:h, :w, :] = img
-                padded_images.append(padded_img)
+        for batch_idx in tqdm(range(0, num_samples, batch_size)):
+            batch_inputs = {}
+            for k, v in processed_inputs.items():
+                if v.shape[0] == num_samples:
+                    batch_inputs[k] = v[batch_idx:batch_idx + batch_size]
+                else:
+                    batch_inputs[k] = v  
 
-            batch_data = np.stack(padded_images, axis=0)  # Shape: [batch_size, max_height, max_width, 3]
+            output = self._infer_multi_inputs(batch_inputs)
+            all_outputs.append(output)
 
+        if len(self._outputs) > 1:
+            merged = {
+                out.name: ([o[out.name] for o in all_outputs])
+                for out in self._outputs
+            }
+        else:
+            out_name = self._outputs[0].name
+            merged = ([o[out_name] for o in all_outputs])
+        return merged
 
-            infer_input = InferInput("INPUT", batch_data.shape, "UINT8")
-            infer_input.set_data_from_numpy(batch_data)
-
-            results = self._serverclient.infer(
-                model_name=self._model,
-                inputs=[infer_input],
-                outputs=[InferRequestedOutput("OUTPUT")],
-            )
-            output = results.as_numpy("OUTPUT")
-
-            for img in output:
-                all_outputs.append(img)
-            
-        return all_outputs
-        
-
-    def get_max_batch_size(self):
+    def get_max_batch_size(self) -> int:
         """
         Query Triton server to get the max_batch_size for the given model.
         """
@@ -119,15 +157,12 @@ class TritonModel:
         except Exception as e:
             print(f"Failed to get model config for '{self._model}': {e}")
             return 0
+        
 
-
-    def auto_setup_config(self, input_shape: tuple = (-1, -1, 3), output_shape: tuple = None) -> None:
+    def auto_setup_config(self) -> None:
         """
         Automatically generate a config.pbtxt file for the Triton model if it doesn't already exist.
-
-        Args:
-            input_shape (tuple): Shape of the input tensor. Default is dynamic image input.
-            output_shape (tuple): Shape of the output tensor. If None, determined by model name.
+        Uses the real input/output info from Triton server (via self._inputs, self._outputs).
         """
         current_dir = os.getcwd()
         model_dir = os.path.join(current_dir, self._model)
@@ -137,36 +172,52 @@ class TritonModel:
             print(f"✅ Config file already exists for {self._model} at {config_path}")
             return
 
-        if output_shape is None:
-            output_shape = (-1, -1, 6)  # [x1, y1, x2, y2, score, class]
-            
-        os.makedirs(model_dir, exist_ok=True)
+        try:
+            self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
+        except Exception as e:
+            print(f"❌ Failed to fetch model I/O from Triton: {e}")
+            return
+
+        input_blocks = []
+        for inp in self._inputs:
+            dims = getattr(inp, "shape", getattr(inp, "dims", []))
+            dtype = getattr(inp, "datatype", "TYPE_FP32")
+            input_blocks.append(f"""
+        {{
+            name: "{inp.name}"
+            data_type: {dtype}
+            dims: {list(dims)}
+        }}""")
+
+        output_blocks = []
+        for out in self._outputs:
+            dims = getattr(out, "shape", getattr(out, "dims", []))
+            dtype = getattr(out, "datatype", "TYPE_FP32")
+            output_blocks.append(f"""
+        {{
+            name: "{out.name}"
+            data_type: {dtype}
+            dims: {list(dims)}
+        }}""")
 
         config_content = f"""name: "{self._model}"
     platform: "ensemble"
-    max_batch_size: 16
+    max_batch_size: {self.get_max_batch_size()}
 
-    input [
-    {{
-        name: "INPUT"
-        data_type: TYPE_UINT8
-        dims: {list(input_shape)}
-    }}
+    input [{",".join(input_blocks)}
     ]
 
-    output [
-    {{
-        name: "OUTPUT"
-        data_type: TYPE_FP32
-        dims: {list(output_shape)}
-    }}
+    output [{",".join(output_blocks)}
     ]
     """
 
+        os.makedirs(model_dir, exist_ok=True)
         try:
             with open(config_path, "w") as f:
                 f.write(config_content)
             print(f"✅ Created config.pbtxt for {self._model} at {config_path}")
         except Exception as e:
             print(f"❌ Failed to create config.pbtxt for {self._model}: {str(e)}")
+
+
 

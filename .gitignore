@@ -129,5 +129,5 @@ dmypy.json
 .pyre/
 user.py
 README.markdown
-
+.vscode/
 result/
