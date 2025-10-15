@@ -84,26 +84,25 @@ class TritonModel:
 
     def run(
         self, 
-        data_dict: Dict[str, Union[List[np.ndarray]]],
+        data: Dict[str, Union[List[np.ndarray]]],
         auto_config=False, 
-        batch_size: int = 1
+        batch_size: int = 2
         ) -> Union[Dict[str, np.ndarray]]:
         """
             Run inference with batch processing.
-            - data_dict: dict of inputs, each value can be list of np.ndarray
-            - batch_size: number of samples per batch
+            - data: dict of inputs, each value can be list of np.ndarray
+            - batch_size: number of samples per batch   
         """
-        print("Starting inference...")
         if auto_config:
             self.auto_setup_config()
 
-        if not isinstance(data_dict, dict):
+        if not isinstance(data, dict):
             raise ValueError("Expected a dict input, e.g. {'img': [...], 'boxes': [...]}")
 
         processed_inputs = {}
         num_samples = None
 
-        for key, value in data_dict.items():
+        for key, value in data.items():
             if isinstance(value, list):
                 stacked = np.stack(value, axis=0)
                 processed_inputs[key] = stacked
