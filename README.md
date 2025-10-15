@@ -7,9 +7,9 @@ Server** using a Python client.
 
 ## 📘 Introduction
 
-`TritonModel` supports: - Connecting to Triton Server (gRPC or HTTP)\
-- **Multi-input** and **multi-output** models\
-- Automatic **batching** and **data stacking**\
+`TritonModel` supports: - Connecting to Triton Server (gRPC or HTTP)
+- **Multi-input** and **multi-output** models
+- Automatic **batching** and **data stacking**
 - Auto-generating `config.pbtxt` based on model metadata from Triton
 
 ------------------------------------------------------------------------
@@ -25,9 +25,9 @@ data = {
 }
 ```
 
--   **Key**: must match the input name defined on the Triton Server.\
+-   **Key**: must match the input name defined on the Triton Server.
 -   **Value**: a list of tensors with the same shape (already padded but
-    not stacked).\
+    not stacked).
     The client will automatically stack, split into batches, and send to
     the server.
 
@@ -62,14 +62,12 @@ print("Single output:", outputs_single)
 The `TritonModel.run()` method can return 4 different formats depending
 on the model:
 
-  ------------------------------------------------------------------------
-  Output Type          Batched                      Non-batched
-  -------------------- ---------------------------- ----------------------
-  Single output        list\[np.ndarray\]           np.ndarray
+| Output Type   | Batched                        | Non-batched                  |
+|----------------|--------------------------------|------------------------------|
+| Single output  | `list[np.ndarray]`             | `np.ndarray`                 |
+| Multi-output   | `dict[str, list[np.ndarray]]`  | `dict[str, np.ndarray]`      |
 
-  Multi-output         dict\[str,                   dict\[str,
-                       list\[np.ndarray\]\]         np.ndarray\]
-  ------------------------------------------------------------------------
+
 
 Example of how to handle the output:
 
@@ -93,18 +91,18 @@ else:
 `TritonModel` can automatically generate the `config.pbtxt` file by
 reading metadata from the Triton Server. This helps users:
 
--   Avoid writing input/output configuration manually\
+-   Avoid writing input/output configuration manually
 -   Ensure compatibility with the server's model definition
 
 ------------------------------------------------------------------------
 
 ## ✅ Environment Requirements
 
--   Python \>= 3.9\
--   opencv-python\
--   numpy\
--   tqdm\
--   tritonclient\
+-   Python \>= 3.9
+-   opencv-python
+-   numpy
+-   tqdm
+-   tritonclient
 -   trism_cv (custom module)
 
 Quick installation:
@@ -117,9 +115,9 @@ pip install opencv-python numpy tqdm tritonclient[grpc]
 
 ## 🧠 Notes
 
--   All inputs must have the same shape for batching.\
--   Input keys must match those defined on Triton.\
--   The model must be in **READY** state on the server.\
+-   All inputs must have the same shape for batching.
+-   Input keys must match those defined on Triton.
+-   The model must be in **READY** state on the server.
 -   Multiple batches can be processed in parallel to increase
     throughput.
 
