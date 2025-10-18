@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 from typing import Union, Dict
 from tritonclient.grpc import InferInput, InferRequestedOutput
-from trism_cv import client
 
+from trism_cv import client
 from .types import np2trt
 
 def load_image(img_path: str) -> np.ndarray:
@@ -86,13 +86,21 @@ class TritonModel:
     def run(
         self, 
         data: Dict[str, Union[list[np.ndarray]]],
-        auto_config=False, 
-        batch_size: int = 2
+        batch_size: int = 2,
+        auto_config: bool = False, 
+        show_progress: bool = False
         ) -> Union[Dict[str, np.ndarray]]:
-        """
-            Run inference with batch processing.
-            - data: dict of inputs, each value can be list of np.ndarray
-            - batch_size: number of samples per batch   
+        """Run inference with batch processing.
+        Args:
+            data: Dict of model inputs, where each key is an input name and 
+                each value is a list of NumPy arrays (samples).
+            auto_config: If True, auto-generate `config.pbtxt` from server info.
+            batch_size: Number of samples per batch (auto-limited by model config).
+            show_progress: If True, show progress bar using tqdm.
+        
+        Returns:
+          - Dict[str, np.ndarray] for multi-output models.
+          - np.ndarray for single-output models.
         """
         if auto_config:
             self.auto_setup_config()
@@ -117,9 +125,12 @@ class TritonModel:
         triton_batch_size = self.get_max_batch_size()
         batch_size = min(triton_batch_size, batch_size)
 
-        all_outputs = []    
+        iterator = range(0, num_samples, batch_size)
+        if show_progress:
+            iterator = tqdm(iterator)
 
-        for batch_idx in tqdm(range(0, num_samples, batch_size)):
+        all_outputs = []
+        for batch_idx in iterator:
             batch_inputs = {}
             for k, v in processed_inputs.items():
                 if v.shape[0] == num_samples:
@@ -138,6 +149,7 @@ class TritonModel:
         else:
             out_name = self._outputs[0].name
             merged = ([o[out_name] for o in all_outputs])
+            
         return merged
 
     def get_max_batch_size(self) -> int:
