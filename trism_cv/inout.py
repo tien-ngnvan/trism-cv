@@ -7,7 +7,6 @@ import tritonclient.http as httpclient
 from trism_cv import types
 
 
-
 class Inout:
 
   @property

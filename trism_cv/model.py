@@ -2,13 +2,13 @@ import os
 import cv2
 import numpy as np
 from tqdm import tqdm
-from typing import Optional, List, Union
+from typing import Union, Dict
 from tritonclient.grpc import InferInput, InferRequestedOutput
 from trism_cv import client
+
 from .types import np2trt
 
-
-def load_image(img_path: str):
+def load_image(img_path: str) -> np.ndarray:
     image = cv2.imread(img_path)
     if image is None:
         raise ValueError(f"Failed to load image: {img_path}")
@@ -48,82 +48,99 @@ class TritonModel:
         self._serverclient = client.serverclient(self.url, self.grpc)
         self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
 
+    def _infer_multi_inputs(self, inputs_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         
-    def _is_image_list(self, data):
-        """Check if data is a list of images (H, W, 3) as np.ndarray."""
-        return (
-            isinstance(data, list)
-            and all(isinstance(img, np.ndarray) and img.ndim == 3 and img.shape[2] == 3 for img in data)
-        )
+        """
+        Run Triton inference for multiple named inputs.
 
-    def _is_ndarray(self, data):
-        """Check if data is a numpy array (any shape, any dtype)."""
-        return isinstance(data, np.ndarray)
+        Args:
+            inputs_dict: dict of {input_name: np.ndarray}
+            
+        Returns:
+            Dict[str, np.ndarray]: dict of {output_name: np.ndarray} containing model outputs.
+        """
 
-    def _infer_array(self, np_array, dtype_str):
-        """Run Triton inference for a numpy array."""
-        infer_input = InferInput("INPUT", list(np_array.shape), dtype_str)
-        infer_input.set_data_from_numpy(np_array)
+        infer_inputs = []
+        input_names = [inp.name for inp in self._inputs]
+        
+        for name in input_names:
+            if name not in inputs_dict:
+                raise KeyError(f"Missing required input '{name}' in data_dict")
+
+            data = inputs_dict[name]
+            dtype_str = np2trt(data.dtype.type)
+            infer_input = InferInput(name, list(data.shape), dtype_str)
+            infer_input.set_data_from_numpy(data)
+            infer_inputs.append(infer_input)
+
+        outputs = [InferRequestedOutput(out.name) for out in self._outputs]
+
         results = self._serverclient.infer(
             model_name=self._model,
-            inputs=[infer_input],
-            outputs=[InferRequestedOutput("OUTPUT")],
+            model_version=self._version,
+            inputs=infer_inputs,
+            outputs=outputs,
         )
-        return results.as_numpy("OUTPUT")
-
-    def _process_image_list(self, img_list: List[np.ndarray], batch_size: int) -> List[np.ndarray]:
-        """Pad images to same size, batch, and run inference."""
-        triton_batch_size = self.get_max_batch_size()
-        batch_size = min(triton_batch_size, batch_size)
-        all_outputs = []
-
-        for batch_idx in tqdm(range(0, len(img_list), batch_size)):
-            batch_images = img_list[batch_idx:batch_idx + batch_size]
-
-            max_height = max(img.shape[0] for img in batch_images)
-            max_width = max(img.shape[1] for img in batch_images)
-
-            padded_images = []
-            for img in batch_images:
-                h, w = img.shape[:2]
-                padded_img = np.full((max_height, max_width, 3), 128, dtype=np.uint8)
-                padded_img[:h, :w, :] = img
-                padded_images.append(padded_img)
-
-            batch_data = np.stack(padded_images, axis=0)
-            output = self._infer_array(batch_data, "UINT8")
-            all_outputs.extend(output)
-
-        return all_outputs
-
-    def _process_ndarray(self, array: np.ndarray) -> List[np.ndarray]:
-        """Run inference for any numpy array with supported dtype."""
-        triton_dtype = np2trt(array.dtype.type)  
-        array = np.expand_dims(array, axis=0) 
-        output = self._infer_array(array, triton_dtype)
-        return [output]
-
+        return {out.name: results.as_numpy(out.name) for out in self._outputs}
 
     def run(
-        self,
-        data_list: Optional[Union[List[np.ndarray], np.ndarray]] = None,
-        auto_config: bool = False,
-        batch_size: int = 1
-    ) -> List[np.ndarray]:
-        """Run inference for either a list of images or a numpy array."""
+        self, 
+        data: Dict[str, Union[list[np.ndarray]]],
+        auto_config=False, 
+        batch_size: int = 2
+        ) -> Union[Dict[str, np.ndarray]]:
+        """
+            Run inference with batch processing.
+            - data: dict of inputs, each value can be list of np.ndarray
+            - batch_size: number of samples per batch   
+        """
         if auto_config:
             self.auto_setup_config()
 
-        if self._is_image_list(data_list):
-            return self._process_image_list(data_list, batch_size)
-        elif self._is_ndarray(data_list):
-            return self._process_ndarray(data_list)
-        else:
-            raise ValueError(
-                f"Unsupported input format. Expected list of images or np.ndarray, but got {type(data_list)}"
-            )
+        if not isinstance(data, dict):
+            raise ValueError("Expected a dict input, e.g. {'img': [...], 'boxes': [...]}")
 
-    def get_max_batch_size(self):
+        processed_inputs = {}
+        num_samples = None
+
+        for key, value in data.items():
+            if isinstance(value, list):
+                stacked = np.stack(value, axis=0)
+                processed_inputs[key] = stacked
+                num_samples = stacked.shape[0]
+            else:
+                raise TypeError(f"Unsupported type for key '{key}': {type(value)}")
+
+        if num_samples is None:
+            raise ValueError("Cannot determine batch size from input data.")
+
+        triton_batch_size = self.get_max_batch_size()
+        batch_size = min(triton_batch_size, batch_size)
+
+        all_outputs = []    
+
+        for batch_idx in tqdm(range(0, num_samples, batch_size)):
+            batch_inputs = {}
+            for k, v in processed_inputs.items():
+                if v.shape[0] == num_samples:
+                    batch_inputs[k] = v[batch_idx:batch_idx + batch_size]
+                else:
+                    batch_inputs[k] = v  
+
+            output = self._infer_multi_inputs(batch_inputs)
+            all_outputs.append(output)
+
+        if len(self._outputs) > 1:
+            merged = {
+                out.name: ([o[out.name] for o in all_outputs])
+                for out in self._outputs
+            }
+        else:
+            out_name = self._outputs[0].name
+            merged = ([o[out_name] for o in all_outputs])
+        return merged
+
+    def get_max_batch_size(self) -> int:
         """
         Query Triton server to get the max_batch_size for the given model.
         """
@@ -141,52 +158,66 @@ class TritonModel:
             print(f"Failed to get model config for '{self._model}': {e}")
             return 0
         
-    def auto_setup_config(self, input_shape: tuple = (-1, -1, 3), output_shape: tuple = None) -> None:
+
+    def auto_setup_config(self) -> None:
         """
         Automatically generate a config.pbtxt file for the Triton model if it doesn't already exist.
-
-        Args:
-            input_shape (tuple): Shape of the input tensor. Default is dynamic image input.
-            output_shape (tuple): Shape of the output tensor. If None, determined by model name.
+        Uses the real input/output info from Triton server (via self._inputs, self._outputs).
         """
         current_dir = os.getcwd()
         model_dir = os.path.join(current_dir, self._model)
         config_path = os.path.join(model_dir, "config.pbtxt")
 
         if os.path.exists(config_path):
-            print(f"✅ Config file already exists for {self._model} at {config_path}")
+            print(f"Config file already exists for {self._model} at {config_path}")
             return
 
-        if output_shape is None:
-            output_shape = (-1, -1, 6)  # [x1, y1, x2, y2, score, class]
-            
-        os.makedirs(model_dir, exist_ok=True)
+        try:
+            self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
+        except Exception as e:
+            print(f"Failed to fetch model I/O from Triton: {e}")
+            return
+
+        input_blocks = []
+        for inp in self._inputs:
+            dims = getattr(inp, "shape", getattr(inp, "dims", []))
+            dtype = getattr(inp, "datatype", "TYPE_FP32")
+            input_blocks.append(f"""
+        {{
+            name: "{inp.name}"
+            data_type: {dtype}
+            dims: {list(dims)}
+        }}""")
+
+        output_blocks = []
+        for out in self._outputs:
+            dims = getattr(out, "shape", getattr(out, "dims", []))
+            dtype = getattr(out, "datatype", "TYPE_FP32")
+            output_blocks.append(f"""
+        {{
+            name: "{out.name}"
+            data_type: {dtype}
+            dims: {list(dims)}
+        }}""")
 
         config_content = f"""name: "{self._model}"
     platform: "ensemble"
-    max_batch_size: 16
+    max_batch_size: {self.get_max_batch_size()}
 
-    input [
-    {{
-        name: "INPUT"
-        data_type: TYPE_UINT8
-        dims: {list(input_shape)}
-    }}
+    input [{",".join(input_blocks)}
     ]
 
-    output [
-    {{
-        name: "OUTPUT"
-        data_type: TYPE_FP32
-        dims: {list(output_shape)}
-    }}
+    output [{",".join(output_blocks)}
     ]
     """
 
+        os.makedirs(model_dir, exist_ok=True)
         try:
             with open(config_path, "w") as f:
                 f.write(config_content)
-            print(f"✅ Created config.pbtxt for {self._model} at {config_path}")
+            print(f"Created config.pbtxt for {self._model} at {config_path}")
         except Exception as e:
-            print(f"❌ Failed to create config.pbtxt for {self._model}: {str(e)}")
+            print(f"Failed to create config.pbtxt for {self._model}: {str(e)}")
+
+
 
