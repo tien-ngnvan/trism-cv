@@ -64,7 +64,7 @@ on the model:
 
 | Output Type       | Format                        | Notes                                                                                                      |
 | ----------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Single-output** | `list[np.ndarray]`            | Each element = **output of one input sample** <br> Length = number of input samples..  | 
+| **Single-output** | `list[np.ndarray]`            | Each element = **output of one input sample** <br> Length = number of input samples.  | 
 | **Multi-output**  | `dict[str, list[np.ndarray]]` | Each key = output name <br> Each value = list of per-sample outputs <br> Length = number of input samples. |
 
 
