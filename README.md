@@ -62,26 +62,24 @@ print("Single output:", outputs_single)
 The `TritonModel.run()` method can return 4 different formats depending
 on the model:
 
-| Output Type   | Batched                        | Non-batched                  |
-|----------------|--------------------------------|------------------------------|
-| Single output  | `list[np.ndarray]`             | `np.ndarray`                 |
-| Multi-output   | `dict[str, list[np.ndarray]]`  | `dict[str, np.ndarray]`      |
+| Output Type       | Format                        | Notes                                                                                                      |
+| ----------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Single-output** | `list[np.ndarray]`            | Each element = **output of one input sample** <br> Length = number of input samples..  | 
+| **Multi-output**  | `dict[str, list[np.ndarray]]` | Each key = output name <br> Each value = list of per-sample outputs <br> Length = number of input samples. |
 
 
 
 Example of how to handle the output:
 
 ``` python
-if isinstance(outputs, dict):
-    # Multi-output model
-    for name, out in outputs.items():
-        for i in range(len(out) if isinstance(out, list) else 1):
-            result = out[i] if isinstance(out, list) else out
-            print(f"{name}: {result.shape}")
-else:
-    # Single-output model
-    for out in (outputs if isinstance(outputs, list) else [outputs]):
-        print(out.shape)
+# Single-output
+for i, sample in enumerate(outputs):
+    print(f"Sample {i} shape:", sample.shape)
+
+# Multi-output
+for name, samples in outputs.items():
+    for i, sample in enumerate(samples):
+        print(f"{name} - sample {i}: shape={sample.shape}")
 ```
 
 ------------------------------------------------------------------------
