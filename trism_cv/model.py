@@ -1,9 +1,9 @@
 import os
 import cv2
 import numpy as np
-from tqdm import tqdm
+from tqdm.asyncio  import tqdm_asyncio
 from typing import Union, Dict
-from tritonclient.grpc import InferInput, InferRequestedOutput
+from tritonclient.grpc.aio import InferInput, InferRequestedOutput
 
 from trism_cv import client
 from .types import np2trt
@@ -45,10 +45,23 @@ class TritonModel:
         self._model = model
         self._version = str(version) if version > 0 else ""
         self._protoclient = client.protoclient(self.grpc)
-        self._serverclient = client.serverclient(self.url, self.grpc)
-        self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
+        self._serverclient = None
+        self._inputs = None
+        self._outputs = None
+    
+        print("new Trism-cv version")
+    
+    async def setup(self):   
+        if self._serverclient is None:
+            self._serverclient = client.serverclient_async(
+                self._url, self._grpc, async_mode=True
+            )
+        
+        self._inputs, self._outputs = await client.iout_async(
+            self._serverclient, self._model, self._version
+        )
 
-    def _infer_multi_inputs(self, inputs_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    async def _infer_multi_inputs(self, inputs_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         
         """
         Run Triton inference for multiple named inputs.
@@ -75,7 +88,7 @@ class TritonModel:
 
         outputs = [InferRequestedOutput(out.name) for out in self._outputs]
 
-        results = self._serverclient.infer(
+        results = await self._serverclient.infer(
             model_name=self._model,
             model_version=self._version,
             inputs=infer_inputs,
@@ -83,7 +96,7 @@ class TritonModel:
         )
         return {out.name: results.as_numpy(out.name) for out in self._outputs}
 
-    def run(
+    async def run(
         self, 
         data: Dict[str, Union[list[np.ndarray]]],
         batch_size: int = 2,
@@ -102,8 +115,11 @@ class TritonModel:
           - Dict[str, np.ndarray] for multi-output models.
           - np.ndarray for single-output models.
         """
+        if self._inputs is None:
+            await self.setup()
+
         if auto_config:
-            self.auto_setup_config()
+            await self.auto_setup_config()
 
         if not isinstance(data, dict):
             raise ValueError("Expected a dict input, e.g. {'img': [...], 'boxes': [...]}")
@@ -122,14 +138,16 @@ class TritonModel:
         if num_samples is None:
             raise ValueError("Cannot determine batch size from input data.")
 
-        triton_batch_size = self.get_max_batch_size()
+        
+        triton_batch_size = await self.get_max_batch_size()
         batch_size = min(triton_batch_size, batch_size)
 
         iterator = range(0, num_samples, batch_size)
         if show_progress:
-            iterator = tqdm(iterator)
+            iterator  = tqdm_asyncio(iterator)
 
         all_outputs = []
+        
         for batch_idx in iterator:
             batch_inputs = {}
             for k, v in processed_inputs.items():
@@ -138,7 +156,7 @@ class TritonModel:
                 else:
                     batch_inputs[k] = v  
 
-            output = self._infer_multi_inputs(batch_inputs)
+            output = await self._infer_multi_inputs(batch_inputs)
             all_outputs.append(output)
 
         if len(self._outputs) > 1:
@@ -162,12 +180,12 @@ class TritonModel:
             
         return merged
 
-    def get_max_batch_size(self) -> int:
+    async def get_max_batch_size(self) -> int:
         """
         Query Triton server to get the max_batch_size for the given model.
         """
         try:
-            full_config = self._serverclient.get_model_config(
+            full_config =await self._serverclient.get_model_config(
                 model_name=self._model, model_version=self._version, as_json=True
             )
             config = full_config["config"]  
@@ -181,7 +199,7 @@ class TritonModel:
             return 0
         
 
-    def auto_setup_config(self) -> None:
+    async def auto_setup_config(self) -> None:
         """
         Automatically generate a config.pbtxt file for the Triton model if it doesn't already exist.
         Uses the real input/output info from Triton server (via self._inputs, self._outputs).
@@ -195,7 +213,7 @@ class TritonModel:
             return
 
         try:
-            self._inputs, self._outputs = client.inout(self._serverclient, self.model, self._version)
+            self._inputs, self._outputs = await client.iout_async(self._serverclient, self.model, self._version)
         except Exception as e:
             print(f"Failed to fetch model I/O from Triton: {e}")
             return
@@ -222,9 +240,10 @@ class TritonModel:
             dims: {list(dims)}
         }}""")
 
+        max_batch_size = await self.get_max_batch_size()
         config_content = f"""name: "{self._model}"
     platform: "ensemble"
-    max_batch_size: {self.get_max_batch_size()}
+    max_batch_size: {max_batch_size}
 
     input [{",".join(input_blocks)}
     ]
