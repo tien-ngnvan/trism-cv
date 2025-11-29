@@ -142,13 +142,23 @@ class TritonModel:
             all_outputs.append(output)
 
         if len(self._outputs) > 1:
-            merged = {
-                out.name: ([o[out.name] for o in all_outputs])
-                for out in self._outputs
-            }
+            merged = {}
+            for out in self._outputs:
+                all_batches = [o[out.name] for o in all_outputs]
+
+                merged_list = []
+                for batch in all_batches:
+                    for i in range(batch.shape[0]):
+                        merged_list.append(batch[i])
+
+                merged[out.name] = merged_list
         else:
             out_name = self._outputs[0].name
-            merged = ([o[out_name] for o in all_outputs])
+            merged = []
+            for batch in all_outputs:
+                arr = batch[out_name]
+                for i in range(arr.shape[0]):
+                    merged.append(arr[i])
             
         return merged
 
