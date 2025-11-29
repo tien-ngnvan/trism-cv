@@ -4,7 +4,7 @@ from typing import Union
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
 
-from trism_cv import types
+from trism_cv import triton_types
 
 
 class Inout:
@@ -24,13 +24,13 @@ class Inout:
   def __init__(self, name: str, shape: tuple, dtype: str, *args, **kwds):
     self.__name = name
     self.__shape = shape
-    self.__dtype = types.trt2np(dtype)
+    self.__dtype = triton_types.trt2np(dtype)
 
   def make_input(self, client, data: np.ndarray) -> Union[grpcclient.InferInput, httpclient.InferInput]:
     infer = client.InferInput(
       name=self.name,
       shape=data.shape,
-      datatype=types.np2trt(self.dtype)
+      datatype=triton_types.np2trt(self.dtype)
     )
     infer.set_data_from_numpy(data.astype(self.dtype))
     return infer
