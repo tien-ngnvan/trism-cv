@@ -273,15 +273,16 @@ class AsyncTritonModel:
             for out in self._outputs:
                 all_batches = [batch[out.name] for batch in all_outputs]
                 stacked = np.concatenate(all_batches, axis=0)
-                merged[out.name] = stacked
+                merged[out.name] = [sample for sample in stacked]
 
             return merged
         else:
             out_name = self._outputs[0].name
             per_batch = [batch[out_name] for batch in all_outputs]
             stacked = np.concatenate(per_batch, axis=0)
+            merged = [sample for sample in stacked]
 
-            return stacked
+            return merged
 
     async def get_max_batch_size(self) -> int:
         """
