@@ -212,9 +212,6 @@ class AsyncTritonModel:
         processed_inputs = {}
         num_samples = None
         for key, value in data.items():
-            print("\nNumber of value: ", len(value))
-            for idx, sample in enumerate(value):
-                print(f"Shape {idx}: ", sample.shape)
             if isinstance(value, list):
                 stacked = np.stack(value, axis=0)
                 processed_inputs[key] = stacked
