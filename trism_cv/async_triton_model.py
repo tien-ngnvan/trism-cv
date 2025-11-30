@@ -212,6 +212,9 @@ class AsyncTritonModel:
         processed_inputs = {}
         num_samples = None
         for key, value in data.items():
+            print("\nNumber of value: ", len(value))
+            for idx, sample in enumerate(value):
+                print(f"Shape {idx}: ", sample.shape)
             if isinstance(value, list):
                 stacked = np.stack(value, axis=0)
                 processed_inputs[key] = stacked
@@ -271,18 +274,23 @@ class AsyncTritonModel:
         if len(self._outputs) > 1:
             merged = {}
             for out in self._outputs:
-                all_batches = [batch[out.name] for batch in all_outputs]
-                stacked = np.concatenate(all_batches, axis=0)
-                merged[out.name] = [sample for sample in stacked]
+                all_batches = [o[out.name] for o in all_outputs]
 
-            return merged
+                merged_list = []
+                for batch in all_batches:
+                    for i in range(batch.shape[0]):
+                        merged_list.append(batch[i])
+
+                merged[out.name] = merged_list
         else:
             out_name = self._outputs[0].name
-            per_batch = [batch[out_name] for batch in all_outputs]
-            stacked = np.concatenate(per_batch, axis=0)
-            merged = [sample for sample in stacked]
+            merged = []
+            for batch in all_outputs:
+                arr = batch[out_name]
+                for i in range(arr.shape[0]):
+                    merged.append(arr[i])
 
-            return merged
+        return merged
 
     async def get_max_batch_size(self) -> int:
         """
